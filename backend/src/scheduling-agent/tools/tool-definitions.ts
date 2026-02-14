@@ -41,7 +41,7 @@ const findAvailableSlots: ChatCompletionFunctionTool = {
         },
         maxResults: {
           type: "number",
-          description: "Maximum number of slots to return (default 10)",
+          description: "Maximum number of slots to return (default 3)",
         },
       },
       required: ["providerId", "startDate", "endDate", "durationMinutes"],
@@ -169,6 +169,33 @@ const cancelBooking: ChatCompletionFunctionTool = {
         },
       },
       required: ["bookingId"],
+    },
+  },
+};
+
+const rescheduleBooking: ChatCompletionFunctionTool = {
+  type: "function",
+  function: {
+    name: "reschedule_booking",
+    description:
+      "Reschedule an existing booking to a new time slot. The old booking is cancelled and a new one is created.",
+    parameters: {
+      type: "object",
+      properties: {
+        bookingId: {
+          type: "string",
+          description: "The booking ID to reschedule",
+        },
+        newStartTime: {
+          type: "string",
+          description: "New slot start time in ISO 8601 format",
+        },
+        durationMinutes: {
+          type: "number",
+          description: "Appointment duration in minutes",
+        },
+      },
+      required: ["bookingId", "newStartTime", "durationMinutes"],
     },
   },
 };
@@ -333,6 +360,7 @@ export const customerTools: ChatCompletionFunctionTool[] = [
   confirmBooking,
   getMyBookings,
   cancelBooking,
+  rescheduleBooking,
 ];
 
 export const providerTools: ChatCompletionFunctionTool[] = [
