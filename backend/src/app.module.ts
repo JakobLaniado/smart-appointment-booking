@@ -12,6 +12,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware.j
 import { AuthModule } from "./auth/auth.module.js";
 import { ProviderModule } from "./provider/provider.module.js";
 import { AvailabilityModule } from "./availability/availability.module.js";
+import { BookingModule } from "./booking/booking.module.js";
 import configuration from "./config/configuration.js";
 
 @Module({
@@ -25,6 +26,7 @@ import configuration from "./config/configuration.js";
     AuthModule,
     ProviderModule,
     AvailabilityModule,
+    BookingModule,
   ],
   providers: [
     {
