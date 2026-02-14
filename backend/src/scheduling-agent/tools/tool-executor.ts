@@ -113,7 +113,7 @@ export class ToolExecutor {
               | "evening"
               | undefined,
             preferredDays: input["preferredDays"] as number[] | undefined,
-            maxResults: (input["maxResults"] as number) ?? 10,
+            maxResults: (input["maxResults"] as number) ?? 3,
           },
         );
 
@@ -151,6 +151,17 @@ export class ToolExecutor {
           ctx.userId,
           input["bookingId"] as string,
           { reason: input["reason"] as string | undefined },
+          randomUUID(),
+        );
+
+      case "reschedule_booking":
+        return this.bookingService.rescheduleBooking(
+          ctx.userId,
+          input["bookingId"] as string,
+          {
+            newStartTime: input["newStartTime"] as string,
+            durationMinutes: input["durationMinutes"] as number,
+          },
           randomUUID(),
         );
 

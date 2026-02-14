@@ -38,6 +38,12 @@ export const cancelBookingSchema = z.object({
   reason: z.string().optional(),
 });
 
+export const rescheduleBookingSchema = z.object({
+  bookingId: z.string().min(1),
+  newStartTime: z.string().min(1),
+  durationMinutes: z.number().int().min(5).max(480),
+});
+
 export const getMyAvailabilitySchema = z.object({
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
@@ -77,6 +83,7 @@ export const toolSchemas: Record<string, z.ZodType> = {
   confirm_booking: confirmBookingSchema,
   get_my_bookings: getMyBookingsSchema,
   cancel_booking: cancelBookingSchema,
+  reschedule_booking: rescheduleBookingSchema,
   get_my_availability: getMyAvailabilitySchema,
   preview_schedule_change: previewScheduleChangeSchema,
   apply_schedule_change: applyScheduleChangeSchema,

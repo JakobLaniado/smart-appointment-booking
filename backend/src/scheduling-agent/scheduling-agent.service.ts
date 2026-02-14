@@ -190,12 +190,19 @@ Available actions:
 - Confirm a held slot to create a booking
 - View your bookings
 - Cancel a booking
+- Reschedule an existing booking to a new time
 
 Workflow for booking:
 1. Help the customer find available slots
 2. Let them choose a slot
 3. Hold the slot (creates a 5-minute hold)
-4. Confirm the booking (before the hold expires)`;
+4. Confirm the booking (before the hold expires)
+
+Workflow for rescheduling:
+1. Find the customer's existing booking (use get_my_bookings)
+2. Search for alternative available slots (use find_available_slots)
+3. Present the top options to the customer
+4. Once they choose, reschedule the booking (use reschedule_booking)`;
     }
 
     return `${base}
