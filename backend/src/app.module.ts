@@ -13,6 +13,7 @@ import { AuthModule } from "./auth/auth.module.js";
 import { ProviderModule } from "./provider/provider.module.js";
 import { AvailabilityModule } from "./availability/availability.module.js";
 import { BookingModule } from "./booking/booking.module.js";
+import { SchedulingAgentModule } from "./scheduling-agent/scheduling-agent.module.js";
 import configuration from "./config/configuration.js";
 
 @Module({
@@ -27,6 +28,7 @@ import configuration from "./config/configuration.js";
     ProviderModule,
     AvailabilityModule,
     BookingModule,
+    SchedulingAgentModule,
   ],
   providers: [
     {
