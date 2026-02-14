@@ -9,6 +9,7 @@ import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter.js";
 import { TransformInterceptor } from "./common/interceptors/transform.interceptor.js";
 import { LoggingInterceptor } from "./common/interceptors/logging.interceptor.js";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware.js";
+import { AuthModule } from "./auth/auth.module.js";
 import configuration from "./config/configuration.js";
 
 @Module({
@@ -19,6 +20,7 @@ import configuration from "./config/configuration.js";
     }),
     PrismaModule,
     RedisModule,
+    AuthModule,
   ],
   providers: [
     {
