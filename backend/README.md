@@ -1,98 +1,217 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Smart Appointment Booking API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Production-grade appointment scheduling backend with AI agent support. Providers define availability, customers book time slots, and an AI scheduling agent helps both sides manage calendars via natural language.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Tech Stack
 
-## Description
+- **Runtime**: TypeScript (strict), NestJS 11, Node.js 22
+- **Database**: PostgreSQL 16 with GiST exclusion constraint for overlap prevention
+- **Cache**: Redis 7 for ephemeral slot holds (5-minute TTL)
+- **Auth**: Passport JWT with role-based access control (CUSTOMER / PROVIDER)
+- **AI**: OpenRouter API (Gemini free model) via OpenAI SDK, agentic tool-use loop
+- **Dates**: Luxon for timezone-aware interval math
+- **Validation**: class-validator DTOs + Zod schemas for AI tool inputs
+- **ORM**: Prisma 7 with `@prisma/adapter-pg` driver adapter
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Architecture
 
-## Project setup
-
-```bash
-$ npm install
+```
+src/
+├── auth/           # JWT register/login, Passport strategy
+├── provider/       # Provider CRUD (profession, timezone, buffer)
+├── availability/   # Recurring rules, overrides, slot calculator
+├── booking/        # Hold → Confirm → Cancel/Reschedule flow
+├── scheduling-agent/ # AI agent with role-based tools
+├── common/         # Guards, filters, interceptors, decorators
+├── prisma/         # PrismaService (global)
+├── redis/          # RedisService with hold management (global)
+└── config/         # Typed configuration
+cli/                # Interactive CLI client (tsx)
 ```
 
-## Compile and run the project
+## Key Design Decisions
+
+- **Redis-only holds**: No HELD status in Postgres. Holds are ephemeral with 5-min TTL. Multiple customers can hold the same slot — the PG exclusion constraint arbitrates at confirm time.
+- **Three-layer overlap protection**: (1) App-level buffer check at hold/confirm/reschedule, (2) PG advisory lock serializes concurrent confirms per provider, (3) GiST exclusion constraint is the final DB-level guarantee.
+- **Idempotency**: `Booking.idempotencyKey` unique column for confirms (INSERT). `IdempotencyRecord` table for cancel/reschedule (UPDATEs). Required `Idempotency-Key` header on mutating endpoints.
+- **Role-based AI tools**: Customer tools (find slots, hold, confirm, cancel). Provider tools (view/modify schedule with two-step preview/apply).
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 22+, npm
+- Docker & Docker Compose
+
+### Setup
 
 ```bash
-# development
-$ npm run start
+cd backend
 
-# watch mode
-$ npm run start:dev
+# Start PostgreSQL + Redis
+docker-compose up -d
 
-# production mode
-$ npm run start:prod
+# Install dependencies
+npm install
+
+# Run migrations + seed
+npx prisma migrate dev
+npx prisma db seed
+
+# Start dev server
+npm run start:dev
 ```
 
-## Run tests
+The API runs at `http://localhost:3000` with Swagger docs at `http://localhost:3000/api/docs`.
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | (see .env) | PostgreSQL connection string |
+| `REDIS_HOST` | localhost | Redis host |
+| `REDIS_PORT` | 6380 | Redis port |
+| `JWT_SECRET` | change-me | JWT signing secret |
+| `JWT_EXPIRES_IN` | 1h | JWT expiry |
+| `OPENROUTER_API_KEY` | - | OpenRouter API key (for AI agent) |
+| `OPENROUTER_MODEL` | google/gemini-2.0-flash-exp:free | LLM model |
+| `PORT` | 3000 | Server port |
+
+## Demo Flow
+
+### 1. Register a provider
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+curl -X POST http://localhost:3000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "dr.smith@example.com",
+    "password": "SecurePass123!",
+    "name": "Dr. Smith",
+    "role": "PROVIDER",
+    "profession": "Dentist",
+    "timezone": "America/New_York"
+  }'
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 2. Set recurring availability (as provider)
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+curl -X POST http://localhost:3000/availability/recurring \
+  -H "Authorization: Bearer <provider_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"dayOfWeek": 1, "startTime": "09:00", "endTime": "17:00"}'
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### 3. Register a customer
 
-## Resources
+```bash
+curl -X POST http://localhost:3000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "jane@example.com",
+    "password": "SecurePass123!",
+    "name": "Jane Customer",
+    "role": "CUSTOMER"
+  }'
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+### 4. Query available slots
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+curl "http://localhost:3000/availability/slots/<providerId>?startDate=2026-02-16&endDate=2026-02-20&durationMinutes=30" \
+  -H "Authorization: Bearer <customer_token>"
+```
 
-## Support
+### 5. Hold a slot
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+curl -X POST http://localhost:3000/bookings/hold \
+  -H "Authorization: Bearer <customer_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "providerId": "<providerId>",
+    "startTime": "2026-02-17T10:00:00Z",
+    "durationMinutes": 30,
+    "notes": "Regular checkup"
+  }'
+```
 
-## Stay in touch
+### 6. Confirm booking (within 5 minutes)
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+```bash
+curl -X POST http://localhost:3000/bookings/confirm \
+  -H "Authorization: Bearer <customer_token>" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"holdId": "<holdId>"}'
+```
 
-## License
+### 7. Chat with AI agent
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+```bash
+curl -X POST http://localhost:3000/agent/chat \
+  -H "Authorization: Bearer <customer_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Find me a 30-minute morning slot next week",
+    "providerId": "<providerId>"
+  }'
+```
+
+## CLI Client
+
+```bash
+npm run cli
+```
+
+Interactive menu-driven client with:
+- Login/Register
+- Browse providers, query slots, hold + confirm bookings
+- Provider schedule management (recurring rules, overrides)
+- AI assistant chat
+
+## API Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/auth/register` | Public | Register user |
+| POST | `/auth/login` | Public | Login, get JWT |
+| GET | `/auth/me` | JWT | Current user profile |
+| GET | `/providers` | JWT | List all providers |
+| GET | `/providers/:id` | JWT | Provider details |
+| GET | `/providers/me` | JWT+PROVIDER | Own provider profile |
+| PATCH | `/providers/me` | JWT+PROVIDER | Update provider profile |
+| POST | `/availability/recurring` | JWT+PROVIDER | Add recurring rule |
+| GET | `/availability/recurring` | JWT+PROVIDER | List recurring rules |
+| DELETE | `/availability/recurring/:id` | JWT+PROVIDER | Delete recurring rule |
+| POST | `/availability/overrides` | JWT+PROVIDER | Add override |
+| GET | `/availability/overrides` | JWT+PROVIDER | List overrides |
+| DELETE | `/availability/overrides/:id` | JWT+PROVIDER | Delete override |
+| GET | `/availability/slots/:providerId` | JWT | Query available slots |
+| POST | `/bookings/hold` | JWT | Hold a slot (5min TTL) |
+| POST | `/bookings/confirm` | JWT + Idempotency-Key | Confirm booking |
+| GET | `/bookings` | JWT | List own bookings |
+| GET | `/bookings/:id` | JWT | Booking details |
+| PATCH | `/bookings/:id/cancel` | JWT + Idempotency-Key | Cancel booking |
+| PATCH | `/bookings/:id/reschedule` | JWT + Idempotency-Key | Reschedule |
+| POST | `/agent/chat` | JWT | AI scheduling assistant |
+
+## Testing
+
+```bash
+# Unit tests (29 tests)
+npm test
+
+# E2E tests (requires running PostgreSQL + Redis)
+npm run test:e2e
+```
+
+## Docker
+
+```bash
+docker build -t smart-booking .
+docker run -p 3000:3000 --env-file .env smart-booking
+```
