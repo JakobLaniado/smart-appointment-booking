@@ -10,6 +10,7 @@ import { TransformInterceptor } from "./common/interceptors/transform.intercepto
 import { LoggingInterceptor } from "./common/interceptors/logging.interceptor.js";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware.js";
 import { AuthModule } from "./auth/auth.module.js";
+import { ProviderModule } from "./provider/provider.module.js";
 import configuration from "./config/configuration.js";
 
 @Module({
@@ -21,6 +22,7 @@ import configuration from "./config/configuration.js";
     PrismaModule,
     RedisModule,
     AuthModule,
+    ProviderModule,
   ],
   providers: [
     {
