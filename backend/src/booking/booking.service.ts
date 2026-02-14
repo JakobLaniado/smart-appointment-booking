@@ -4,18 +4,25 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
-} from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service.js";
-import { RedisService } from "../redis/redis.service.js";
-import { HoldSlotDto } from "./dto/hold-slot.dto.js";
-import { ConfirmBookingDto } from "./dto/confirm-booking.dto.js";
-import { CancelBookingDto } from "./dto/cancel-booking.dto.js";
-import { RescheduleBookingDto } from "./dto/reschedule-booking.dto.js";
-import { ListBookingsDto } from "./dto/list-bookings.dto.js";
-import { randomUUID } from "crypto";
-import { Prisma } from "@prisma/client";
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { RedisService } from '../redis/redis.service.js';
+import { HoldSlotDto } from './dto/hold-slot.dto.js';
+import { ConfirmBookingDto } from './dto/confirm-booking.dto.js';
+import { CancelBookingDto } from './dto/cancel-booking.dto.js';
+import { RescheduleBookingDto } from './dto/reschedule-booking.dto.js';
+import { ListBookingsDto } from './dto/list-bookings.dto.js';
+import { randomUUID } from 'crypto';
+import { Prisma } from '@prisma/client';
 
 const HOLD_TTL_SECONDS = 300; // 5 minutes
+
+const ALLOWED_SORT_FIELDS = new Set([
+  'startTime',
+  'endTime',
+  'createdAt',
+  'status',
+]);
 
 @Injectable()
 export class BookingService {
@@ -31,7 +38,7 @@ export class BookingService {
     });
     if (!provider) {
       throw new NotFoundException({
-        code: "PROVIDER_NOT_FOUND",
+        code: 'PROVIDER_NOT_FOUND',
         message: `Provider ${dto.providerId} not found`,
       });
     }
@@ -41,13 +48,22 @@ export class BookingService {
       startTime.getTime() + dto.durationMinutes * 60 * 1000,
     );
 
-    // Check for buffer conflicts with existing confirmed bookings
-    await this.checkBufferConflicts(
-      dto.providerId,
-      startTime,
-      endTime,
-      provider.bufferMinutes,
-    );
+    // Optimistic check for buffer conflicts (fast-fail before Redis write)
+    const conflicting = await this.prisma.booking.findFirst({
+      where: this.buildBufferConflictWhere(
+        dto.providerId,
+        startTime,
+        endTime,
+        provider.bufferMinutes,
+      ),
+    });
+    if (conflicting) {
+      throw new ConflictException({
+        code: 'SLOT_UNAVAILABLE',
+        message:
+          'This time slot conflicts with an existing booking (including buffer time)',
+      });
+    }
 
     // Create Redis hold
     const holdId = randomUUID();
@@ -73,21 +89,35 @@ export class BookingService {
     dto: ConfirmBookingDto,
     idempotencyKey: string,
   ) {
-    // 1. Get hold from Redis
+    // 1. Check idempotency — return existing booking if already confirmed
+    const existingBooking = await this.prisma.booking.findFirst({
+      where: { idempotencyKey },
+      include: {
+        provider: {
+          include: { user: { select: { name: true } } },
+        },
+        customer: { select: { name: true, email: true } },
+      },
+    });
+    if (existingBooking) {
+      return this.formatBooking(existingBooking);
+    }
+
+    // 2. Get hold from Redis
     const hold = await this.redis.getHold(dto.holdId);
     if (!hold) {
       throw new ConflictException({
-        code: "HOLD_EXPIRED",
+        code: 'HOLD_EXPIRED',
         message:
-          "Hold has expired. Please create a new hold before confirming.",
+          'Hold has expired. Please create a new hold before confirming.',
       });
     }
 
     // 2. Verify hold ownership
     if (hold.customerId !== customerId) {
       throw new ForbiddenException({
-        code: "FORBIDDEN",
-        message: "This hold belongs to another user",
+        code: 'FORBIDDEN',
+        message: 'This hold belongs to another user',
       });
     }
 
@@ -99,15 +129,9 @@ export class BookingService {
       where: { id: hold.providerId },
     });
 
-    // 4. TOCTOU re-check buffer conflicts
-    await this.checkBufferConflicts(
-      hold.providerId,
-      startTime,
-      endTime,
-      provider.bufferMinutes,
-    );
-
-    // 5. Insert booking with advisory lock inside a transaction
+    // 4. Insert booking with advisory lock inside a transaction.
+    //    Buffer conflict check is INSIDE the transaction AFTER the lock
+    //    to prevent TOCTOU race conditions.
     try {
       const booking = await this.prisma.$transaction(async (tx) => {
         // Advisory lock on provider to serialize concurrent confirms
@@ -117,13 +141,30 @@ export class BookingService {
           )
         `;
 
+        // Re-check buffer conflicts AFTER acquiring lock
+        const conflicting = await tx.booking.findFirst({
+          where: this.buildBufferConflictWhere(
+            hold.providerId,
+            startTime,
+            endTime,
+            provider.bufferMinutes,
+          ),
+        });
+        if (conflicting) {
+          throw new ConflictException({
+            code: 'SLOT_UNAVAILABLE',
+            message:
+              'This time slot conflicts with an existing booking (including buffer time)',
+          });
+        }
+
         return tx.booking.create({
           data: {
             providerId: hold.providerId,
             customerId,
             startTime,
             endTime,
-            status: "CONFIRMED",
+            status: 'CONFIRMED',
             notes: hold.notes,
             idempotencyKey,
           },
@@ -141,9 +182,12 @@ export class BookingService {
 
       return this.formatBooking(booking);
     } catch (error) {
+      // Re-throw NestJS HTTP exceptions directly
+      if (error instanceof ConflictException) throw error;
+
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         // Unique constraint on idempotencyKey — return existing booking
-        if (error.code === "P2002") {
+        if (error.code === 'P2002') {
           const existing = await this.prisma.booking.findFirst({
             where: { idempotencyKey },
             include: {
@@ -159,23 +203,23 @@ export class BookingService {
         }
         // Exclusion constraint violation — overlap
         if (
-          error.code === "P2010" ||
-          (error.message && error.message.includes("booking_no_overlap"))
+          error.code === 'P2010' ||
+          (error.message && error.message.includes('booking_no_overlap'))
         ) {
           throw new ConflictException({
-            code: "SLOT_UNAVAILABLE",
-            message: "This time slot is no longer available",
+            code: 'SLOT_UNAVAILABLE',
+            message: 'This time slot is no longer available',
           });
         }
       }
       // Check for raw exclusion constraint error
       if (
         error instanceof Error &&
-        error.message?.includes("booking_no_overlap")
+        error.message?.includes('booking_no_overlap')
       ) {
         throw new ConflictException({
-          code: "SLOT_UNAVAILABLE",
-          message: "This time slot is no longer available",
+          code: 'SLOT_UNAVAILABLE',
+          message: 'This time slot is no longer available',
         });
       }
       throw error;
@@ -185,14 +229,14 @@ export class BookingService {
   async listBookings(userId: string, role: string, dto: ListBookingsDto) {
     const where: Prisma.BookingWhereInput = {};
 
-    if (role === "PROVIDER") {
+    if (role === 'PROVIDER') {
       const provider = await this.prisma.provider.findUnique({
         where: { userId },
       });
       if (!provider) {
         throw new ForbiddenException({
-          code: "NOT_A_PROVIDER",
-          message: "User does not have a provider profile",
+          code: 'NOT_A_PROVIDER',
+          message: 'User does not have a provider profile',
         });
       }
       where.providerId = provider.id;
@@ -209,6 +253,9 @@ export class BookingService {
 
     const page = dto.page ?? 1;
     const limit = dto.limit ?? 20;
+    const sortField = ALLOWED_SORT_FIELDS.has(dto.sortBy ?? '')
+      ? (dto.sortBy as string)
+      : 'startTime';
 
     const [bookings, total] = await Promise.all([
       this.prisma.booking.findMany({
@@ -219,7 +266,7 @@ export class BookingService {
           },
           customer: { select: { name: true, email: true } },
         },
-        orderBy: { startTime: dto.order ?? "desc" },
+        orderBy: { [sortField]: dto.order ?? 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -250,7 +297,7 @@ export class BookingService {
 
     if (!booking) {
       throw new NotFoundException({
-        code: "BOOKING_NOT_FOUND",
+        code: 'BOOKING_NOT_FOUND',
         message: `Booking ${bookingId} not found`,
       });
     }
@@ -260,8 +307,8 @@ export class BookingService {
     const isCustomer = booking.customer.id === userId;
     if (!isProvider && !isCustomer) {
       throw new ForbiddenException({
-        code: "FORBIDDEN",
-        message: "You do not have access to this booking",
+        code: 'FORBIDDEN',
+        message: 'You do not have access to this booking',
       });
     }
 
@@ -294,12 +341,12 @@ export class BookingService {
 
     if (!booking) {
       throw new NotFoundException({
-        code: "BOOKING_NOT_FOUND",
+        code: 'BOOKING_NOT_FOUND',
         message: `Booking ${bookingId} not found`,
       });
     }
 
-    if (booking.status === "CANCELLED") {
+    if (booking.status === 'CANCELLED') {
       return this.formatBooking(booking);
     }
 
@@ -308,8 +355,8 @@ export class BookingService {
     const isCustomer = booking.customer.id === userId;
     if (!isProvider && !isCustomer) {
       throw new ForbiddenException({
-        code: "FORBIDDEN",
-        message: "You do not have access to this booking",
+        code: 'FORBIDDEN',
+        message: 'You do not have access to this booking',
       });
     }
 
@@ -317,7 +364,7 @@ export class BookingService {
       const cancelled = await tx.booking.update({
         where: { id: bookingId },
         data: {
-          status: "CANCELLED",
+          status: 'CANCELLED',
           cancelReason: dto.reason,
         },
         include: {
@@ -334,7 +381,7 @@ export class BookingService {
         data: {
           key: idempotencyKey,
           bookingId,
-          operation: "cancel",
+          operation: 'cancel',
           response: formatted as unknown as Prisma.InputJsonValue,
         },
       });
@@ -366,38 +413,29 @@ export class BookingService {
 
     if (!oldBooking) {
       throw new NotFoundException({
-        code: "BOOKING_NOT_FOUND",
+        code: 'BOOKING_NOT_FOUND',
         message: `Booking ${bookingId} not found`,
       });
     }
 
-    if (oldBooking.status === "CANCELLED") {
+    if (oldBooking.status === 'CANCELLED') {
       throw new BadRequestException({
-        code: "BOOKING_CANCELLED",
-        message: "Cannot reschedule a cancelled booking",
+        code: 'BOOKING_CANCELLED',
+        message: 'Cannot reschedule a cancelled booking',
       });
     }
 
     // Only customer can reschedule
     if (oldBooking.customerId !== userId) {
       throw new ForbiddenException({
-        code: "FORBIDDEN",
-        message: "Only the customer can reschedule a booking",
+        code: 'FORBIDDEN',
+        message: 'Only the customer can reschedule a booking',
       });
     }
 
     const newStartTime = new Date(dto.newStartTime);
     const newEndTime = new Date(
       newStartTime.getTime() + dto.durationMinutes * 60 * 1000,
-    );
-
-    // Check buffer conflicts for new time (excluding old booking)
-    await this.checkBufferConflicts(
-      oldBooking.providerId,
-      newStartTime,
-      newEndTime,
-      oldBooking.provider.bufferMinutes,
-      bookingId,
     );
 
     try {
@@ -409,6 +447,24 @@ export class BookingService {
           )
         `;
 
+        // Check buffer conflicts INSIDE the lock (prevents TOCTOU races)
+        const conflicting = await tx.booking.findFirst({
+          where: this.buildBufferConflictWhere(
+            oldBooking.providerId,
+            newStartTime,
+            newEndTime,
+            oldBooking.provider.bufferMinutes,
+            bookingId,
+          ),
+        });
+        if (conflicting) {
+          throw new ConflictException({
+            code: 'SLOT_UNAVAILABLE',
+            message:
+              'The new time slot conflicts with an existing booking (including buffer time)',
+          });
+        }
+
         // Insert new booking first
         const newBooking = await tx.booking.create({
           data: {
@@ -416,7 +472,7 @@ export class BookingService {
             customerId: userId,
             startTime: newStartTime,
             endTime: newEndTime,
-            status: "CONFIRMED",
+            status: 'CONFIRMED',
             notes: oldBooking.notes,
             idempotencyKey,
           },
@@ -432,8 +488,8 @@ export class BookingService {
         await tx.booking.update({
           where: { id: bookingId },
           data: {
-            status: "CANCELLED",
-            cancelReason: "Rescheduled",
+            status: 'CANCELLED',
+            cancelReason: 'Rescheduled',
           },
         });
 
@@ -446,7 +502,7 @@ export class BookingService {
           data: {
             key: idempotencyKey,
             bookingId: newBooking.id,
-            operation: "reschedule",
+            operation: 'reschedule',
             response: formatted as unknown as Prisma.InputJsonValue,
           },
         });
@@ -456,8 +512,11 @@ export class BookingService {
 
       return result;
     } catch (error) {
+      // Re-throw NestJS HTTP exceptions directly
+      if (error instanceof ConflictException) throw error;
+
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === "P2002") {
+        if (error.code === 'P2002') {
           const existing = await this.prisma.idempotencyRecord.findUnique({
             where: { key: idempotencyKey },
           });
@@ -466,48 +525,37 @@ export class BookingService {
       }
       if (
         error instanceof Error &&
-        error.message?.includes("booking_no_overlap")
+        error.message?.includes('booking_no_overlap')
       ) {
         throw new ConflictException({
-          code: "SLOT_UNAVAILABLE",
-          message: "The new time slot is no longer available",
+          code: 'SLOT_UNAVAILABLE',
+          message: 'The new time slot is no longer available',
         });
       }
       throw error;
     }
   }
 
-  private async checkBufferConflicts(
+  /** Build a Prisma where clause for buffer conflict detection. */
+  private buildBufferConflictWhere(
     providerId: string,
     startTime: Date,
     endTime: Date,
     bufferMinutes: number,
     excludeBookingId?: string,
-  ) {
+  ): Prisma.BookingWhereInput {
     const bufferedStart = new Date(
       startTime.getTime() - bufferMinutes * 60 * 1000,
     );
-    const bufferedEnd = new Date(
-      endTime.getTime() + bufferMinutes * 60 * 1000,
-    );
+    const bufferedEnd = new Date(endTime.getTime() + bufferMinutes * 60 * 1000);
 
-    const conflicting = await this.prisma.booking.findFirst({
-      where: {
-        providerId,
-        status: "CONFIRMED",
-        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
-        startTime: { lt: bufferedEnd },
-        endTime: { gt: bufferedStart },
-      },
-    });
-
-    if (conflicting) {
-      throw new ConflictException({
-        code: "SLOT_UNAVAILABLE",
-        message:
-          "This time slot conflicts with an existing booking (including buffer time)",
-      });
-    }
+    return {
+      providerId,
+      status: 'CONFIRMED',
+      ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+      startTime: { lt: bufferedEnd },
+      endTime: { gt: bufferedStart },
+    };
   }
 
   private formatBooking(booking: {

@@ -1,11 +1,12 @@
-import { Test, TestingModule } from "@nestjs/testing";
-import { ConfigService } from "@nestjs/config";
-import { SchedulingAgentService } from "./scheduling-agent.service.js";
-import { ToolExecutor } from "./tools/tool-executor.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
+import { SchedulingAgentService } from './scheduling-agent.service.js';
+import { ToolExecutor } from './tools/tool-executor.js';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { RedisService } from '../redis/redis.service.js';
 
 // Mock OpenAI
-jest.mock("openai", () => {
+jest.mock('openai', () => {
   return {
     __esModule: true,
     default: jest.fn().mockImplementation(() => ({
@@ -18,10 +19,22 @@ jest.mock("openai", () => {
   };
 });
 
-describe("SchedulingAgentService", () => {
+interface MockPrisma {
+  provider: {
+    findUnique: jest.Mock;
+  };
+}
+
+interface MockRedis {
+  getConversation: jest.Mock;
+  setConversation: jest.Mock;
+  deleteConversation: jest.Mock;
+}
+
+describe('SchedulingAgentService', () => {
   let service: SchedulingAgentService;
   let toolExecutor: { execute: jest.Mock };
-  let prisma: { [key: string]: any };
+  let prisma: MockPrisma;
   let mockCreate: jest.Mock;
 
   beforeEach(async () => {
@@ -35,6 +48,12 @@ describe("SchedulingAgentService", () => {
       },
     };
 
+    const redis: MockRedis = {
+      getConversation: jest.fn().mockResolvedValue(null),
+      setConversation: jest.fn().mockResolvedValue(undefined),
+      deleteConversation: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SchedulingAgentService,
@@ -43,9 +62,9 @@ describe("SchedulingAgentService", () => {
           useValue: {
             get: jest.fn((key: string, defaultValue?: string) => {
               const config: Record<string, string> = {
-                "openrouter.apiKey": "test-key",
-                "openrouter.baseUrl": "https://openrouter.ai/api/v1",
-                "openrouter.model": "test-model",
+                'openrouter.apiKey': 'test-key',
+                'openrouter.baseUrl': 'https://openrouter.ai/api/v1',
+                'openrouter.model': 'test-model',
               };
               return config[key] ?? defaultValue;
             }),
@@ -53,35 +72,40 @@ describe("SchedulingAgentService", () => {
         },
         { provide: ToolExecutor, useValue: toolExecutor },
         { provide: PrismaService, useValue: prisma },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
 
     service = module.get<SchedulingAgentService>(SchedulingAgentService);
 
     // Get access to the mocked OpenAI client
-    mockCreate = (service as any).client.chat.completions.create;
+    mockCreate = (
+      service as unknown as {
+        client: { chat: { completions: { create: jest.Mock } } };
+      }
+    ).client.chat.completions.create;
   });
 
-  it("should return text response when no tool calls", async () => {
+  it('should return text response when no tool calls', async () => {
     mockCreate.mockResolvedValueOnce({
       choices: [
         {
-          message: { content: "Hello! How can I help you?", tool_calls: null },
-          finish_reason: "stop",
+          message: { content: 'Hello! How can I help you?', tool_calls: null },
+          finish_reason: 'stop',
         },
       ],
     });
 
     const result = await service.chat({
-      message: "Hi",
-      userId: "user-1",
-      role: "CUSTOMER",
+      message: 'Hi',
+      userId: 'user-1',
+      role: 'CUSTOMER',
     });
 
-    expect(result).toBe("Hello! How can I help you?");
+    expect(result).toBe('Hello! How can I help you?');
   });
 
-  it("should execute tool calls and return final response", async () => {
+  it('should execute tool calls and return final response', async () => {
     // First call: LLM wants to call a tool
     mockCreate.mockResolvedValueOnce({
       choices: [
@@ -90,16 +114,16 @@ describe("SchedulingAgentService", () => {
             content: null,
             tool_calls: [
               {
-                id: "call-1",
-                type: "function",
+                id: 'call-1',
+                type: 'function',
                 function: {
-                  name: "get_my_bookings",
-                  arguments: "{}",
+                  name: 'get_my_bookings',
+                  arguments: '{}',
                 },
               },
             ],
           },
-          finish_reason: "tool_calls",
+          finish_reason: 'tool_calls',
         },
       ],
     });
@@ -115,52 +139,52 @@ describe("SchedulingAgentService", () => {
       choices: [
         {
           message: {
-            content: "You have no upcoming bookings.",
+            content: 'You have no upcoming bookings.',
             tool_calls: null,
           },
-          finish_reason: "stop",
+          finish_reason: 'stop',
         },
       ],
     });
 
     const result = await service.chat({
-      message: "Show my bookings",
-      userId: "user-1",
-      role: "CUSTOMER",
+      message: 'Show my bookings',
+      userId: 'user-1',
+      role: 'CUSTOMER',
     });
 
-    expect(result).toBe("You have no upcoming bookings.");
+    expect(result).toBe('You have no upcoming bookings.');
     expect(toolExecutor.execute).toHaveBeenCalledWith(
-      "get_my_bookings",
+      'get_my_bookings',
       {},
-      expect.objectContaining({ userId: "user-1", role: "CUSTOMER" }),
+      expect.objectContaining({ userId: 'user-1', role: 'CUSTOMER' }),
     );
   });
 
-  it("should resolve provider ID for provider role", async () => {
-    prisma.provider.findUnique.mockResolvedValue({ id: "prov-123" });
+  it('should resolve provider ID for provider role', async () => {
+    prisma.provider.findUnique.mockResolvedValue({ id: 'prov-123' });
 
     mockCreate.mockResolvedValueOnce({
       choices: [
         {
-          message: { content: "Here is your schedule.", tool_calls: null },
-          finish_reason: "stop",
+          message: { content: 'Here is your schedule.', tool_calls: null },
+          finish_reason: 'stop',
         },
       ],
     });
 
     await service.chat({
-      message: "Show my schedule",
-      userId: "user-1",
-      role: "PROVIDER",
+      message: 'Show my schedule',
+      userId: 'user-1',
+      role: 'PROVIDER',
     });
 
     expect(prisma.provider.findUnique).toHaveBeenCalledWith({
-      where: { userId: "user-1" },
+      where: { userId: 'user-1' },
     });
   });
 
-  it("should stop after MAX_ITERATIONS", async () => {
+  it('should stop after MAX_ITERATIONS', async () => {
     // Always return tool calls to trigger the loop
     mockCreate.mockResolvedValue({
       choices: [
@@ -169,16 +193,16 @@ describe("SchedulingAgentService", () => {
             content: null,
             tool_calls: [
               {
-                id: "call-1",
-                type: "function",
+                id: 'call-1',
+                type: 'function',
                 function: {
-                  name: "get_my_bookings",
-                  arguments: "{}",
+                  name: 'get_my_bookings',
+                  arguments: '{}',
                 },
               },
             ],
           },
-          finish_reason: "tool_calls",
+          finish_reason: 'tool_calls',
         },
       ],
     });
@@ -189,17 +213,17 @@ describe("SchedulingAgentService", () => {
     });
 
     const result = await service.chat({
-      message: "infinite loop",
-      userId: "user-1",
-      role: "CUSTOMER",
+      message: 'infinite loop',
+      userId: 'user-1',
+      role: 'CUSTOMER',
     });
 
-    expect(result).toContain("maximum number of steps");
+    expect(result).toContain('maximum number of steps');
     // Should have been called exactly 10 times (MAX_ITERATIONS)
     expect(mockCreate).toHaveBeenCalledTimes(10);
   });
 
-  it("should handle JSON parse errors in tool arguments", async () => {
+  it('should handle JSON parse errors in tool arguments', async () => {
     mockCreate
       .mockResolvedValueOnce({
         choices: [
@@ -208,16 +232,16 @@ describe("SchedulingAgentService", () => {
               content: null,
               tool_calls: [
                 {
-                  id: "call-1",
-                  type: "function",
+                  id: 'call-1',
+                  type: 'function',
                   function: {
-                    name: "get_my_bookings",
-                    arguments: "not valid json",
+                    name: 'get_my_bookings',
+                    arguments: 'not valid json',
                   },
                 },
               ],
             },
-            finish_reason: "tool_calls",
+            finish_reason: 'tool_calls',
           },
         ],
       })
@@ -225,21 +249,21 @@ describe("SchedulingAgentService", () => {
         choices: [
           {
             message: {
-              content: "Sorry, there was an error.",
+              content: 'Sorry, there was an error.',
               tool_calls: null,
             },
-            finish_reason: "stop",
+            finish_reason: 'stop',
           },
         ],
       });
 
     const result = await service.chat({
-      message: "test",
-      userId: "user-1",
-      role: "CUSTOMER",
+      message: 'test',
+      userId: 'user-1',
+      role: 'CUSTOMER',
     });
 
-    expect(result).toBe("Sorry, there was an error.");
+    expect(result).toBe('Sorry, there was an error.');
     // Tool executor should NOT have been called
     expect(toolExecutor.execute).not.toHaveBeenCalled();
   });

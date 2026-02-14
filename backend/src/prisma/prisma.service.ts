@@ -1,7 +1,7 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { ConfigService } from "@nestjs/config";
+import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class PrismaService
@@ -10,7 +10,7 @@ export class PrismaService
 {
   constructor(configService: ConfigService) {
     const adapter = new PrismaPg({
-      connectionString: configService.get<string>("DATABASE_URL"),
+      connectionString: configService.get<string>('DATABASE_URL'),
     });
     super({ adapter });
   }
@@ -24,8 +24,8 @@ export class PrismaService
   }
 
   async cleanDatabase() {
-    if (process.env["NODE_ENV"] !== "test") {
-      throw new Error("cleanDatabase is only allowed in test environment");
+    if (process.env['NODE_ENV'] !== 'test') {
+      throw new Error('cleanDatabase is only allowed in test environment');
     }
     await this.$transaction([
       this.booking.deleteMany(),

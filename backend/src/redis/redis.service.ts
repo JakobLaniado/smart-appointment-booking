@@ -3,9 +3,9 @@ import {
   OnModuleInit,
   OnModuleDestroy,
   Logger,
-} from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import Redis from "ioredis";
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import Redis from 'ioredis';
 
 export interface HoldData {
   providerId: string;
@@ -15,6 +15,8 @@ export interface HoldData {
   notes?: string;
 }
 
+const CONVERSATION_TTL_SECONDS = 1800; // 30 minutes
+
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private client: Redis;
@@ -22,19 +24,21 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   constructor(private readonly configService: ConfigService) {
     this.client = new Redis({
-      host: this.configService.get<string>("REDIS_HOST", "localhost"),
-      port: this.configService.get<number>("REDIS_PORT", 6379),
+      host: this.configService.get<string>('redis.host', 'localhost'),
+      port: this.configService.get<number>('redis.port', 6379),
       retryStrategy: (times) => Math.min(times * 50, 2000),
     });
   }
 
   onModuleInit() {
-    this.logger.log("Redis connection established");
+    this.logger.log('Redis connection established');
   }
 
   async onModuleDestroy() {
     await this.client.quit();
   }
+
+  // ─── Hold Management ────────────────────────────────────
 
   async setHold(
     holdId: string,
@@ -44,7 +48,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.client.set(
       `booking:hold:${holdId}`,
       JSON.stringify(data),
-      "EX",
+      'EX',
       ttlSeconds,
     );
   }
@@ -59,13 +63,32 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.client.del(`booking:hold:${holdId}`);
   }
 
+  // ─── Conversation History ───────────────────────────────
+
+  async getConversation(userId: string): Promise<string | null> {
+    const key = `agent:conv:${userId}`;
+    return this.client.get(key);
+  }
+
+  async setConversation(userId: string, messages: string): Promise<void> {
+    const key = `agent:conv:${userId}`;
+    await this.client.set(key, messages, 'EX', CONVERSATION_TTL_SECONDS);
+  }
+
+  async deleteConversation(userId: string): Promise<void> {
+    const key = `agent:conv:${userId}`;
+    await this.client.del(key);
+  }
+
+  // ─── Generic Operations ─────────────────────────────────
+
   async get(key: string): Promise<string | null> {
     return this.client.get(key);
   }
 
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
     if (ttlSeconds) {
-      await this.client.set(key, value, "EX", ttlSeconds);
+      await this.client.set(key, value, 'EX', ttlSeconds);
     } else {
       await this.client.set(key, value);
     }
@@ -73,6 +96,15 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async del(key: string): Promise<void> {
     await this.client.del(key);
+  }
+
+  async isHealthy(): Promise<boolean> {
+    try {
+      const pong = await this.client.ping();
+      return pong === 'PONG';
+    } catch {
+      return false;
+    }
   }
 
   getClient(): Redis {

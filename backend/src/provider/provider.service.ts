@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service.js";
-import { UpdateProviderDto } from "./dto/update-provider.dto.js";
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { UpdateProviderDto } from './dto/update-provider.dto.js';
 
 @Injectable()
 export class ProviderService {
@@ -30,7 +30,7 @@ export class ProviderService {
     });
     if (!provider) {
       throw new NotFoundException({
-        code: "PROVIDER_NOT_FOUND",
+        code: 'PROVIDER_NOT_FOUND',
         message: `Provider ${id} not found`,
       });
     }
@@ -60,8 +60,8 @@ export class ProviderService {
     });
     if (!provider) {
       throw new NotFoundException({
-        code: "PROVIDER_NOT_FOUND",
-        message: "Provider profile not found for this user",
+        code: 'PROVIDER_NOT_FOUND',
+        message: 'Provider profile not found for this user',
       });
     }
     return {
@@ -86,8 +86,8 @@ export class ProviderService {
     });
     if (!provider) {
       throw new NotFoundException({
-        code: "PROVIDER_NOT_FOUND",
-        message: "Provider profile not found for this user",
+        code: 'PROVIDER_NOT_FOUND',
+        message: 'Provider profile not found for this user',
       });
     }
 

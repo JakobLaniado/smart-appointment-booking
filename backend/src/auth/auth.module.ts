@@ -1,10 +1,10 @@
-import { Module } from "@nestjs/common";
-import { JwtModule } from "@nestjs/jwt";
-import { PassportModule } from "@nestjs/passport";
-import { ConfigService } from "@nestjs/config";
-import { AuthController } from "./auth.controller.js";
-import { AuthService } from "./auth.service.js";
-import { JwtStrategy } from "./strategies/jwt.strategy.js";
+import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
+import { ConfigService } from '@nestjs/config';
+import { AuthController } from './auth.controller.js';
+import { AuthService } from './auth.service.js';
+import { JwtStrategy } from './strategies/jwt.strategy.js';
 
 @Module({
   imports: [
@@ -12,9 +12,12 @@ import { JwtStrategy } from "./strategies/jwt.strategy.js";
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>("jwt.secret", "change-me"),
+        secret: config.get<string>('jwt.secret', 'change-me'),
         signOptions: {
-          expiresIn: config.get<string>("jwt.expiresIn", "1h") as `${number}${"s" | "m" | "h" | "d"}`,
+          expiresIn: config.get<string>(
+            'jwt.expiresIn',
+            '1h',
+          ) as `${number}${'s' | 'm' | 'h' | 'd'}`,
         },
       }),
     }),

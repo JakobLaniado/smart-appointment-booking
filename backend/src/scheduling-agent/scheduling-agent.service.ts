@@ -1,24 +1,29 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import OpenAI from "openai";
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import OpenAI from 'openai';
 import type {
   ChatCompletionMessageParam,
   ChatCompletionFunctionTool,
-} from "openai/resources/chat/completions.js";
-import { PrismaService } from "../prisma/prisma.service.js";
-import {
-  customerTools,
-  providerTools,
-} from "./tools/tool-definitions.js";
-import { ToolExecutor, type ToolContext } from "./tools/tool-executor.js";
+} from 'openai/resources/chat/completions.js';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { RedisService } from '../redis/redis.service.js';
+import { customerTools, providerTools } from './tools/tool-definitions.js';
+import { ToolExecutor, type ToolContext } from './tools/tool-executor.js';
 
 const MAX_ITERATIONS = 10;
+const MAX_HISTORY_MESSAGES = 20; // Keep last N messages to avoid token overflow
 
 interface AgentRequest {
   message: string;
   userId: string;
-  role: "CUSTOMER" | "PROVIDER";
+  role: 'CUSTOMER' | 'PROVIDER';
   providerId?: string; // for customer: the provider they want to interact with
+}
+
+/** Serializable subset of conversation messages stored in Redis. */
+interface StoredMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 @Injectable()
@@ -31,17 +36,18 @@ export class SchedulingAgentService {
     private readonly configService: ConfigService,
     private readonly toolExecutor: ToolExecutor,
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
   ) {
     this.client = new OpenAI({
-      apiKey: this.configService.get<string>("openrouter.apiKey", ""),
+      apiKey: this.configService.get<string>('openrouter.apiKey', ''),
       baseURL: this.configService.get<string>(
-        "openrouter.baseUrl",
-        "https://openrouter.ai/api/v1",
+        'openrouter.baseUrl',
+        'https://openrouter.ai/api/v1',
       ),
     });
     this.model = this.configService.get<string>(
-      "openrouter.model",
-      "google/gemini-2.0-flash-exp:free",
+      'openrouter.model',
+      'openrouter/free',
     );
   }
 
@@ -55,7 +61,7 @@ export class SchedulingAgentService {
     };
 
     // If provider, resolve their provider ID
-    if (role === "PROVIDER") {
+    if (role === 'PROVIDER') {
       const provider = await this.prisma.provider.findUnique({
         where: { userId },
       });
@@ -66,21 +72,25 @@ export class SchedulingAgentService {
 
     // Select tools based on role
     const tools: ChatCompletionFunctionTool[] =
-      role === "PROVIDER" ? providerTools : customerTools;
+      role === 'PROVIDER' ? providerTools : customerTools;
 
     // Build system prompt
     const systemPrompt = this.buildSystemPrompt(role, providerId);
 
-    // Initialize conversation
+    // Load conversation history from Redis
+    const history = await this.loadHistory(userId);
+
+    // Initialize conversation with history
     const messages: ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: message },
+      { role: 'system', content: systemPrompt },
+      ...history,
+      { role: 'user', content: message },
     ];
 
     // Agentic loop
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       this.logger.debug({
-        msg: "Agent iteration",
+        msg: 'Agent iteration',
         iteration: i + 1,
         userId,
       });
@@ -101,18 +111,21 @@ export class SchedulingAgentService {
 
       // If no tool calls, return the text response
       if (
-        choice.finish_reason !== "tool_calls" ||
+        choice.finish_reason !== 'tool_calls' ||
         !assistantMessage.tool_calls?.length
       ) {
-        return (
-          assistantMessage.content ??
-          "I've completed the requested actions."
-        );
+        const responseText =
+          assistantMessage.content ?? "I've completed the requested actions.";
+
+        // Save updated conversation history
+        await this.saveHistory(userId, history, message, responseText);
+
+        return responseText;
       }
 
       // Process tool calls
       for (const toolCall of assistantMessage.tool_calls) {
-        if (toolCall.type !== "function") continue;
+        if (toolCall.type !== 'function') continue;
         const toolName = toolCall.function.name;
         let parsedArgs: unknown;
 
@@ -120,18 +133,18 @@ export class SchedulingAgentService {
           parsedArgs = JSON.parse(toolCall.function.arguments);
         } catch {
           messages.push({
-            role: "tool",
+            role: 'tool',
             tool_call_id: toolCall.id,
             content: JSON.stringify({
               success: false,
-              error: "Failed to parse tool arguments as JSON",
+              error: 'Failed to parse tool arguments as JSON',
             }),
           });
           continue;
         }
 
         this.logger.log({
-          msg: "Executing tool call",
+          msg: 'Executing tool call',
           toolName,
           userId,
           iteration: i + 1,
@@ -144,18 +157,68 @@ export class SchedulingAgentService {
         );
 
         messages.push({
-          role: "tool",
+          role: 'tool',
           tool_call_id: toolCall.id,
           content: JSON.stringify(result),
         });
       }
     }
 
-    return "I've reached the maximum number of steps for this request. Please try breaking your request into smaller parts.";
+    const fallback =
+      "I've reached the maximum number of steps for this request. Please try breaking your request into smaller parts.";
+    await this.saveHistory(userId, history, message, fallback);
+    return fallback;
+  }
+
+  async clearHistory(userId: string): Promise<void> {
+    await this.redis.deleteConversation(userId);
+  }
+
+  private async loadHistory(
+    userId: string,
+  ): Promise<ChatCompletionMessageParam[]> {
+    const raw = await this.redis.getConversation(userId);
+    if (!raw) return [];
+
+    try {
+      const stored = JSON.parse(raw) as StoredMessage[];
+      return stored.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  private async saveHistory(
+    userId: string,
+    previousHistory: ChatCompletionMessageParam[],
+    userMessage: string,
+    assistantResponse: string,
+  ): Promise<void> {
+    // Reconstruct stored messages from previous history + new exchange
+    const stored: StoredMessage[] = previousHistory
+      .filter(
+        (m): m is ChatCompletionMessageParam & { role: 'user' | 'assistant' } =>
+          m.role === 'user' || m.role === 'assistant',
+      )
+      .map((m) => ({
+        role: m.role,
+        content: (m.content as string) ?? '',
+      }));
+
+    stored.push({ role: 'user', content: userMessage });
+    stored.push({ role: 'assistant', content: assistantResponse });
+
+    // Trim to max history length
+    const trimmed = stored.slice(-MAX_HISTORY_MESSAGES);
+
+    await this.redis.setConversation(userId, JSON.stringify(trimmed));
   }
 
   private buildSystemPrompt(
-    role: "CUSTOMER" | "PROVIDER",
+    role: 'CUSTOMER' | 'PROVIDER',
     providerId?: string,
   ): string {
     const now = new Date().toISOString();
@@ -175,15 +238,17 @@ Important rules:
 - Always confirm with the user before making bookings or schedule changes
 - Present slot options clearly with date, time, and duration
 - When holding a slot, inform the user they have 5 minutes to confirm
-- Be concise but friendly in responses`;
+- Be concise but friendly in responses
+- You have conversation history — reference previous messages when relevant`;
 
-    if (role === "CUSTOMER") {
+    if (role === 'CUSTOMER') {
       return `${base}
 
 You are helping a CUSTOMER book appointments.
-${providerId ? `The customer is looking at provider ID: ${providerId}` : "The customer has not specified a provider yet. Ask them which provider they'd like to book with, or help them find one."}
+${providerId ? `The customer is looking at provider ID: ${providerId}` : 'The customer has not specified a provider yet. You can list available providers using the list_providers tool.'}
 
 Available actions:
+- List available providers
 - Search for available time slots
 - View a provider's schedule
 - Hold a time slot (temporary 5-minute reservation)
