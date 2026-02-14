@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  CUSTOMER
+  PROVIDER
+}
+
+enum OverrideType {
+  BLOCK
+  OPEN
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(CUSTOMER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  provider           Provider?
+  bookingsAsCustomer Booking[] @relation("CustomerBookings")
+}
+
+model Provider {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  profession    String
+  timezone      String
+  bufferMinutes Int      @default(15)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recurringAvailability RecurringAvailability[]
+  availabilityOverrides AvailabilityOverride[]
+  bookings              Booking[]              @relation("ProviderBookings")
+}
+
+model RecurringAvailability {
+  id         String   @id @default(cuid())
+  providerId String
+  dayOfWeek  Int
+  startTime  String
+  endTime    String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId, dayOfWeek])
+}
+
+model AvailabilityOverride {
+  id         String       @id @default(cuid())
+  providerId String
+  startTime  DateTime
+  endTime    DateTime
+  type       OverrideType
+  reason     String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId, startTime, endTime])
+}
+
+model Booking {
+  id             String        @id @default(cuid())
+  providerId     String
+  customerId     String
+  startTime      DateTime
+  endTime        DateTime
+  status         BookingStatus @default(CONFIRMED)
+  notes          String?
+  cancelReason   String?
+  idempotencyKey String?       @unique
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  provider Provider @relation("ProviderBookings", fields: [providerId], references: [id])
+  customer User     @relation("CustomerBookings", fields: [customerId], references: [id])
+
+  @@index([providerId, startTime, endTime])
+  @@index([customerId])
+  @@index([status])
+}
+
+model IdempotencyRecord {
+  key       String   @id
+  bookingId String
+  operation String
+  response  Json
+  createdAt DateTime @default(now())
+
+  @@index([bookingId])
+}
