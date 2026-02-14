@@ -1,149 +1,148 @@
-import type { ChatCompletionFunctionTool } from "openai/resources/chat/completions.js";
+import type { ChatCompletionFunctionTool } from 'openai/resources/chat/completions.js';
 
 // ─── Customer Tools ─────────────────────────────────────────────────────────
 
 const findAvailableSlots: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "find_available_slots",
+    name: 'find_available_slots',
     description:
-      "Search for available appointment slots with a specific provider. Returns ranked slots based on preferences.",
+      'Search for available appointment slots with a specific provider. Returns ranked slots based on preferences.',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         providerId: {
-          type: "string",
+          type: 'string',
           description: "The provider's ID to search slots for",
         },
         startDate: {
-          type: "string",
-          description: "Start of date range (YYYY-MM-DD)",
+          type: 'string',
+          description: 'Start of date range (YYYY-MM-DD)',
         },
         endDate: {
-          type: "string",
-          description: "End of date range (YYYY-MM-DD)",
+          type: 'string',
+          description: 'End of date range (YYYY-MM-DD)',
         },
         durationMinutes: {
-          type: "number",
-          description: "Desired appointment duration in minutes",
+          type: 'number',
+          description: 'Desired appointment duration in minutes',
         },
         timeOfDay: {
-          type: "string",
-          enum: ["morning", "afternoon", "evening"],
+          type: 'string',
+          enum: ['morning', 'afternoon', 'evening'],
           description:
-            "Preferred time of day (morning=9-12, afternoon=12-5, evening=5-8)",
+            'Preferred time of day (morning=9-12, afternoon=12-5, evening=5-8)',
         },
         preferredDays: {
-          type: "array",
-          items: { type: "number" },
-          description:
-            "Preferred days of the week (0=Sun, 1=Mon, ..., 6=Sat)",
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Preferred days of the week (0=Sun, 1=Mon, ..., 6=Sat)',
         },
         maxResults: {
-          type: "number",
-          description: "Maximum number of slots to return (default 3)",
+          type: 'number',
+          description: 'Maximum number of slots to return (default 3)',
         },
       },
-      required: ["providerId", "startDate", "endDate", "durationMinutes"],
+      required: ['providerId', 'startDate', 'endDate', 'durationMinutes'],
     },
   },
 };
 
 const getProviderAvailability: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "get_provider_availability",
+    name: 'get_provider_availability',
     description:
       "View a provider's profile including their recurring schedule, timezone, and buffer time.",
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         providerId: {
-          type: "string",
+          type: 'string',
           description: "The provider's ID",
         },
       },
-      required: ["providerId"],
+      required: ['providerId'],
     },
   },
 };
 
 const holdSlot: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "hold_slot",
+    name: 'hold_slot',
     description:
-      "Create a temporary hold on a time slot (5 minutes). Must be confirmed before it expires.",
+      'Create a temporary hold on a time slot (5 minutes). Must be confirmed before it expires.',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         providerId: {
-          type: "string",
+          type: 'string',
           description: "The provider's ID",
         },
         startTime: {
-          type: "string",
-          description: "Slot start time in ISO 8601 format",
+          type: 'string',
+          description: 'Slot start time in ISO 8601 format',
         },
         durationMinutes: {
-          type: "number",
-          description: "Appointment duration in minutes",
+          type: 'number',
+          description: 'Appointment duration in minutes',
         },
         notes: {
-          type: "string",
-          description: "Optional notes for the appointment",
+          type: 'string',
+          description: 'Optional notes for the appointment',
         },
       },
-      required: ["providerId", "startTime", "durationMinutes"],
+      required: ['providerId', 'startTime', 'durationMinutes'],
     },
   },
 };
 
 const confirmBooking: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "confirm_booking",
+    name: 'confirm_booking',
     description:
-      "Confirm a held slot to create a booking. Must provide the holdId from a previous hold_slot call.",
+      'Confirm a held slot to create a booking. Must provide the holdId from a previous hold_slot call.',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         holdId: {
-          type: "string",
-          description: "The hold ID returned from hold_slot",
+          type: 'string',
+          description: 'The hold ID returned from hold_slot',
         },
       },
-      required: ["holdId"],
+      required: ['holdId'],
     },
   },
 };
 
 const getMyBookings: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "get_my_bookings",
+    name: 'get_my_bookings',
     description:
-      "List bookings. For customers: shows their appointments. For providers: shows their schedule.",
+      'List bookings. For customers: shows their appointments. For providers: shows their schedule.',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         status: {
-          type: "string",
-          enum: ["CONFIRMED", "CANCELLED"],
-          description: "Filter by booking status",
+          type: 'string',
+          enum: ['CONFIRMED', 'CANCELLED'],
+          description: 'Filter by booking status',
         },
         dateFrom: {
-          type: "string",
-          description: "Filter bookings from this date (ISO 8601)",
+          type: 'string',
+          description: 'Filter bookings from this date (ISO 8601)',
         },
         dateTo: {
-          type: "string",
-          description: "Filter bookings up to this date (ISO 8601)",
+          type: 'string',
+          description: 'Filter bookings up to this date (ISO 8601)',
         },
-        page: { type: "number", description: "Page number (default 1)" },
+        page: { type: 'number', description: 'Page number (default 1)' },
         limit: {
-          type: "number",
-          description: "Results per page (default 20)",
+          type: 'number',
+          description: 'Results per page (default 20)',
         },
       },
       required: [],
@@ -152,50 +151,50 @@ const getMyBookings: ChatCompletionFunctionTool = {
 };
 
 const cancelBooking: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "cancel_booking",
-    description: "Cancel an existing booking.",
+    name: 'cancel_booking',
+    description: 'Cancel an existing booking.',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         bookingId: {
-          type: "string",
-          description: "The booking ID to cancel",
+          type: 'string',
+          description: 'The booking ID to cancel',
         },
         reason: {
-          type: "string",
-          description: "Reason for cancellation",
+          type: 'string',
+          description: 'Reason for cancellation',
         },
       },
-      required: ["bookingId"],
+      required: ['bookingId'],
     },
   },
 };
 
 const rescheduleBooking: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "reschedule_booking",
+    name: 'reschedule_booking',
     description:
-      "Reschedule an existing booking to a new time slot. The old booking is cancelled and a new one is created.",
+      'Reschedule an existing booking to a new time slot. The old booking is cancelled and a new one is created.',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         bookingId: {
-          type: "string",
-          description: "The booking ID to reschedule",
+          type: 'string',
+          description: 'The booking ID to reschedule',
         },
         newStartTime: {
-          type: "string",
-          description: "New slot start time in ISO 8601 format",
+          type: 'string',
+          description: 'New slot start time in ISO 8601 format',
         },
         durationMinutes: {
-          type: "number",
-          description: "Appointment duration in minutes",
+          type: 'number',
+          description: 'Appointment duration in minutes',
         },
       },
-      required: ["bookingId", "newStartTime", "durationMinutes"],
+      required: ['bookingId', 'newStartTime', 'durationMinutes'],
     },
   },
 };
@@ -203,21 +202,21 @@ const rescheduleBooking: ChatCompletionFunctionTool = {
 // ─── Provider Tools ─────────────────────────────────────────────────────────
 
 const getMyAvailability: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "get_my_availability",
+    name: 'get_my_availability',
     description:
-      "View your own schedule: recurring availability rules, overrides, and upcoming bookings.",
+      'View your own schedule: recurring availability rules, overrides, and upcoming bookings.',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         dateFrom: {
-          type: "string",
-          description: "Start date for overrides/bookings (ISO 8601)",
+          type: 'string',
+          description: 'Start date for overrides/bookings (ISO 8601)',
         },
         dateTo: {
-          type: "string",
-          description: "End date for overrides/bookings (ISO 8601)",
+          type: 'string',
+          description: 'End date for overrides/bookings (ISO 8601)',
         },
       },
       required: [],
@@ -226,127 +225,141 @@ const getMyAvailability: ChatCompletionFunctionTool = {
 };
 
 const previewScheduleChange: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "preview_schedule_change",
+    name: 'preview_schedule_change',
     description:
-      "Preview what would happen if you block or open a time range. Shows what overrides would be created and any existing bookings that would be affected. Does NOT apply the change.",
+      'Preview what would happen if you block or open a time range. Shows what overrides would be created and any existing bookings that would be affected. Does NOT apply the change.',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         action: {
-          type: "string",
-          enum: ["BLOCK", "OPEN"],
-          description: "Whether to block or open the time range",
+          type: 'string',
+          enum: ['BLOCK', 'OPEN'],
+          description: 'Whether to block or open the time range',
         },
         startTime: {
-          type: "string",
-          description: "Start time in ISO 8601 format",
+          type: 'string',
+          description: 'Start time in ISO 8601 format',
         },
         endTime: {
-          type: "string",
-          description: "End time in ISO 8601 format",
+          type: 'string',
+          description: 'End time in ISO 8601 format',
         },
         reason: {
-          type: "string",
-          description: "Reason for the change",
+          type: 'string',
+          description: 'Reason for the change',
         },
       },
-      required: ["action", "startTime", "endTime"],
+      required: ['action', 'startTime', 'endTime'],
     },
   },
 };
 
 const applyScheduleChange: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "apply_schedule_change",
+    name: 'apply_schedule_change',
     description:
-      "Apply a previously previewed schedule change. Creates the override(s). Only call after preview_schedule_change.",
+      'Apply a previously previewed schedule change. Creates the override(s). Only call after preview_schedule_change.',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         action: {
-          type: "string",
-          enum: ["BLOCK", "OPEN"],
-          description: "Whether to block or open the time range",
+          type: 'string',
+          enum: ['BLOCK', 'OPEN'],
+          description: 'Whether to block or open the time range',
         },
         startTime: {
-          type: "string",
-          description: "Start time in ISO 8601 format",
+          type: 'string',
+          description: 'Start time in ISO 8601 format',
         },
         endTime: {
-          type: "string",
-          description: "End time in ISO 8601 format",
+          type: 'string',
+          description: 'End time in ISO 8601 format',
         },
         reason: {
-          type: "string",
-          description: "Reason for the change",
+          type: 'string',
+          description: 'Reason for the change',
         },
       },
-      required: ["action", "startTime", "endTime"],
+      required: ['action', 'startTime', 'endTime'],
     },
   },
 };
 
 const blockTimeRange: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "block_time_range",
-    description: "Block off a time range so no appointments can be booked.",
+    name: 'block_time_range',
+    description: 'Block off a time range so no appointments can be booked.',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         startTime: {
-          type: "string",
-          description: "Start time in ISO 8601 format",
+          type: 'string',
+          description: 'Start time in ISO 8601 format',
         },
         endTime: {
-          type: "string",
-          description: "End time in ISO 8601 format",
+          type: 'string',
+          description: 'End time in ISO 8601 format',
         },
         reason: {
-          type: "string",
-          description: "Reason for blocking",
+          type: 'string',
+          description: 'Reason for blocking',
         },
       },
-      required: ["startTime", "endTime"],
+      required: ['startTime', 'endTime'],
     },
   },
 };
 
 const addAvailability: ChatCompletionFunctionTool = {
-  type: "function",
+  type: 'function',
   function: {
-    name: "add_availability",
+    name: 'add_availability',
     description:
-      "Add a new availability window. Can be a one-time OPEN override or a recurring weekly rule.",
+      'Add a new availability window. Can be a one-time OPEN override or a recurring weekly rule.',
     parameters: {
-      type: "object",
+      type: 'object',
       properties: {
         type: {
-          type: "string",
-          enum: ["recurring", "one_time"],
+          type: 'string',
+          enum: ['recurring', 'one_time'],
           description:
-            "Whether this is a recurring weekly rule or a one-time availability window",
+            'Whether this is a recurring weekly rule or a one-time availability window',
         },
         dayOfWeek: {
-          type: "number",
+          type: 'number',
           description:
-            "Day of week for recurring rules (0=Sun, 1=Mon, ..., 6=Sat). Required for type=recurring.",
+            'Day of week for recurring rules (0=Sun, 1=Mon, ..., 6=Sat). Required for type=recurring.',
         },
         startTime: {
-          type: "string",
+          type: 'string',
           description:
             'Start time. For recurring: "HH:mm" format. For one_time: ISO 8601.',
         },
         endTime: {
-          type: "string",
+          type: 'string',
           description:
             'End time. For recurring: "HH:mm" format. For one_time: ISO 8601.',
         },
       },
-      required: ["type", "startTime", "endTime"],
+      required: ['type', 'startTime', 'endTime'],
+    },
+  },
+};
+
+const listProviders: ChatCompletionFunctionTool = {
+  type: 'function',
+  function: {
+    name: 'list_providers',
+    description:
+      'List all available providers with their name, profession, timezone, and ID. Use this to help customers find a provider.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
     },
   },
 };
@@ -354,6 +367,7 @@ const addAvailability: ChatCompletionFunctionTool = {
 // ─── Exports ────────────────────────────────────────────────────────────────
 
 export const customerTools: ChatCompletionFunctionTool[] = [
+  listProviders,
   findAvailableSlots,
   getProviderAvailability,
   holdSlot,

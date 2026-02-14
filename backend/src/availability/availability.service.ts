@@ -1,9 +1,13 @@
-import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service.js";
-import { AvailabilityCalculatorService } from "./availability-calculator.service.js";
-import { CreateRecurringDto } from "./dto/create-recurring.dto.js";
-import { CreateOverrideDto } from "./dto/create-override.dto.js";
-import { QuerySlotsDto } from "./dto/query-slots.dto.js";
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { AvailabilityCalculatorService } from './availability-calculator.service.js';
+import { CreateRecurringDto } from './dto/create-recurring.dto.js';
+import { CreateOverrideDto } from './dto/create-override.dto.js';
+import { QuerySlotsDto } from './dto/query-slots.dto.js';
 
 @Injectable()
 export class AvailabilityService {
@@ -28,7 +32,7 @@ export class AvailabilityService {
     const provider = await this.getProviderByUserId(userId);
     return this.prisma.recurringAvailability.findMany({
       where: { providerId: provider.id, isActive: true },
-      orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
     });
   }
 
@@ -39,8 +43,8 @@ export class AvailabilityService {
     });
     if (!rule || rule.providerId !== provider.id) {
       throw new NotFoundException({
-        code: "RECURRING_NOT_FOUND",
-        message: "Recurring availability rule not found",
+        code: 'RECURRING_NOT_FOUND',
+        message: 'Recurring availability rule not found',
       });
     }
     await this.prisma.recurringAvailability.delete({ where: { id } });
@@ -60,11 +64,7 @@ export class AvailabilityService {
     });
   }
 
-  async listOverrides(
-    userId: string,
-    dateFrom?: string,
-    dateTo?: string,
-  ) {
+  async listOverrides(userId: string, dateFrom?: string, dateTo?: string) {
     const provider = await this.getProviderByUserId(userId);
     return this.prisma.availabilityOverride.findMany({
       where: {
@@ -78,7 +78,7 @@ export class AvailabilityService {
             }
           : {}),
       },
-      orderBy: { startTime: "asc" },
+      orderBy: { startTime: 'asc' },
     });
   }
 
@@ -89,8 +89,8 @@ export class AvailabilityService {
     });
     if (!override || override.providerId !== provider.id) {
       throw new NotFoundException({
-        code: "OVERRIDE_NOT_FOUND",
-        message: "Availability override not found",
+        code: 'OVERRIDE_NOT_FOUND',
+        message: 'Availability override not found',
       });
     }
     await this.prisma.availabilityOverride.delete({ where: { id } });
@@ -103,7 +103,7 @@ export class AvailabilityService {
     });
     if (!provider) {
       throw new NotFoundException({
-        code: "PROVIDER_NOT_FOUND",
+        code: 'PROVIDER_NOT_FOUND',
         message: `Provider ${providerId} not found`,
       });
     }
@@ -122,7 +122,7 @@ export class AvailabilityService {
       this.prisma.booking.findMany({
         where: {
           providerId,
-          status: "CONFIRMED",
+          status: 'CONFIRMED',
           startTime: { lte: new Date(dto.endDate) },
           endTime: { gte: new Date(dto.startDate) },
         },
@@ -154,8 +154,8 @@ export class AvailabilityService {
     });
     if (!provider) {
       throw new ForbiddenException({
-        code: "NOT_A_PROVIDER",
-        message: "User does not have a provider profile",
+        code: 'NOT_A_PROVIDER',
+        message: 'User does not have a provider profile',
       });
     }
     return provider;

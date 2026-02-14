@@ -1,9 +1,9 @@
-import { AvailabilityCalculatorService } from "./availability-calculator.service.js";
+import { AvailabilityCalculatorService } from './availability-calculator.service.js';
 import type {
   RecurringAvailability,
   AvailabilityOverride,
   Booking,
-} from "@prisma/client";
+} from '@prisma/client';
 
 // Helper: get the next Monday (or further future Monday) as YYYY-MM-DD
 function getNextMonday(): string {
@@ -12,20 +12,18 @@ function getNextMonday(): string {
   const future = new Date(now.getTime() + 3 * 86400000);
   const day = future.getUTCDay(); // 0=Sun..6=Sat
   const daysUntilMonday = day === 0 ? 1 : day === 1 ? 0 : 8 - day;
-  const monday = new Date(
-    future.getTime() + daysUntilMonday * 86400000,
-  );
-  return monday.toISOString().split("T")[0]!;
+  const monday = new Date(future.getTime() + daysUntilMonday * 86400000);
+  return monday.toISOString().split('T')[0];
 }
 
 function getNextTuesday(): string {
   const mon = getNextMonday();
   const d = new Date(mon);
   d.setDate(d.getDate() + 1);
-  return d.toISOString().split("T")[0]!;
+  return d.toISOString().split('T')[0];
 }
 
-describe("AvailabilityCalculatorService", () => {
+describe('AvailabilityCalculatorService', () => {
   let service: AvailabilityCalculatorService;
   let futureMonday: string;
   let futureTuesday: string;
@@ -39,11 +37,11 @@ describe("AvailabilityCalculatorService", () => {
   const makeRecurring = (
     overrides: Partial<RecurringAvailability> = {},
   ): RecurringAvailability => ({
-    id: "rec-1",
-    providerId: "prov-1",
+    id: 'rec-1',
+    providerId: 'prov-1',
     dayOfWeek: 1, // Monday
-    startTime: "09:00",
-    endTime: "17:00",
+    startTime: '09:00',
+    endTime: '17:00',
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -55,12 +53,12 @@ describe("AvailabilityCalculatorService", () => {
     endISO: string,
     overrides: Partial<Booking> = {},
   ): Booking => ({
-    id: "book-1",
-    providerId: "prov-1",
-    customerId: "cust-1",
+    id: 'book-1',
+    providerId: 'prov-1',
+    customerId: 'cust-1',
     startTime: new Date(startISO),
     endTime: new Date(endISO),
-    status: "CONFIRMED",
+    status: 'CONFIRMED',
     notes: null,
     cancelReason: null,
     idempotencyKey: null,
@@ -72,24 +70,24 @@ describe("AvailabilityCalculatorService", () => {
   const makeOverride = (
     overrides: Partial<AvailabilityOverride> = {},
   ): AvailabilityOverride => ({
-    id: "ovr-1",
-    providerId: "prov-1",
+    id: 'ovr-1',
+    providerId: 'prov-1',
     startTime: new Date(`${getNextMonday()}T12:00:00Z`),
     endTime: new Date(`${getNextMonday()}T13:00:00Z`),
-    type: "BLOCK",
+    type: 'BLOCK',
     reason: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
   });
 
-  describe("calculateSlots", () => {
-    it("should return empty array when no recurring availability", () => {
+  describe('calculateSlots', () => {
+    it('should return empty array when no recurring availability', () => {
       const slots = service.calculateSlots(
         [],
         [],
         [],
-        "UTC",
+        'UTC',
         15,
         futureMonday,
         futureMonday,
@@ -98,13 +96,13 @@ describe("AvailabilityCalculatorService", () => {
       expect(slots).toEqual([]);
     });
 
-    it("should generate slots from recurring availability", () => {
+    it('should generate slots from recurring availability', () => {
       const recurring = [makeRecurring({ dayOfWeek: 1 })];
       const slots = service.calculateSlots(
         recurring,
         [],
         [],
-        "UTC",
+        'UTC',
         0,
         futureMonday,
         futureMonday,
@@ -120,7 +118,7 @@ describe("AvailabilityCalculatorService", () => {
       }
     });
 
-    it("should subtract bookings with buffer", () => {
+    it('should subtract bookings with buffer', () => {
       const recurring = [makeRecurring({ dayOfWeek: 1 })];
       const bookingStart = `${futureMonday}T14:00:00Z`;
       const bookingEnd = `${futureMonday}T15:00:00Z`;
@@ -130,7 +128,7 @@ describe("AvailabilityCalculatorService", () => {
         recurring,
         [],
         [booking],
-        "UTC",
+        'UTC',
         15,
         futureMonday,
         futureMonday,
@@ -142,7 +140,7 @@ describe("AvailabilityCalculatorService", () => {
         recurring,
         [],
         [],
-        "UTC",
+        'UTC',
         15,
         futureMonday,
         futureMonday,
@@ -153,10 +151,10 @@ describe("AvailabilityCalculatorService", () => {
       expect(slotsWithBooking.length).toBeLessThan(slotsWithout.length);
     });
 
-    it("should apply BLOCK overrides", () => {
+    it('should apply BLOCK overrides', () => {
       const recurring = [makeRecurring({ dayOfWeek: 1 })];
       const blockOverride = makeOverride({
-        type: "BLOCK",
+        type: 'BLOCK',
         startTime: new Date(`${futureMonday}T12:00:00Z`),
         endTime: new Date(`${futureMonday}T14:00:00Z`),
       });
@@ -164,7 +162,7 @@ describe("AvailabilityCalculatorService", () => {
         recurring,
         [blockOverride],
         [],
-        "UTC",
+        'UTC',
         0,
         futureMonday,
         futureMonday,
@@ -176,7 +174,7 @@ describe("AvailabilityCalculatorService", () => {
         recurring,
         [],
         [],
-        "UTC",
+        'UTC',
         0,
         futureMonday,
         futureMonday,
@@ -187,9 +185,9 @@ describe("AvailabilityCalculatorService", () => {
       expect(slotsWithBlock.length).toBeLessThan(slotsWithout.length);
     });
 
-    it("should apply OPEN overrides to add extra windows", () => {
+    it('should apply OPEN overrides to add extra windows', () => {
       const openOverride = makeOverride({
-        type: "OPEN",
+        type: 'OPEN',
         startTime: new Date(`${futureMonday}T18:00:00Z`),
         endTime: new Date(`${futureMonday}T20:00:00Z`),
       });
@@ -197,7 +195,7 @@ describe("AvailabilityCalculatorService", () => {
         [],
         [openOverride],
         [],
-        "UTC",
+        'UTC',
         0,
         futureMonday,
         futureMonday,
@@ -208,19 +206,19 @@ describe("AvailabilityCalculatorService", () => {
       expect(slots.length).toBeGreaterThan(0);
     });
 
-    it("should skip cancelled bookings", () => {
+    it('should skip cancelled bookings', () => {
       const recurring = [makeRecurring({ dayOfWeek: 1 })];
       const bookingStart = `${futureMonday}T14:00:00Z`;
       const bookingEnd = `${futureMonday}T15:00:00Z`;
       const cancelledBooking = makeBooking(bookingStart, bookingEnd, {
-        status: "CANCELLED",
+        status: 'CANCELLED',
       });
 
       const slotsWithCancelled = service.calculateSlots(
         recurring,
         [],
         [cancelledBooking],
-        "UTC",
+        'UTC',
         0,
         futureMonday,
         futureMonday,
@@ -232,7 +230,7 @@ describe("AvailabilityCalculatorService", () => {
         recurring,
         [],
         [],
-        "UTC",
+        'UTC',
         0,
         futureMonday,
         futureMonday,
@@ -243,13 +241,13 @@ describe("AvailabilityCalculatorService", () => {
       expect(slotsWithCancelled.length).toEqual(slotsWithout.length);
     });
 
-    it("should skip inactive recurring rules", () => {
+    it('should skip inactive recurring rules', () => {
       const inactive = makeRecurring({ isActive: false });
       const slots = service.calculateSlots(
         [inactive],
         [],
         [],
-        "UTC",
+        'UTC',
         0,
         futureMonday,
         futureMonday,
@@ -258,13 +256,13 @@ describe("AvailabilityCalculatorService", () => {
       expect(slots).toEqual([]);
     });
 
-    it("should respect maxResults", () => {
+    it('should respect maxResults', () => {
       const recurring = [makeRecurring({ dayOfWeek: 1 })];
       const slots = service.calculateSlots(
         recurring,
         [],
         [],
-        "UTC",
+        'UTC',
         0,
         futureMonday,
         futureMonday,
@@ -276,39 +274,39 @@ describe("AvailabilityCalculatorService", () => {
     });
   });
 
-  describe("scoring", () => {
-    it("should score morning preference higher for morning slots", () => {
+  describe('scoring', () => {
+    it('should score morning preference higher for morning slots', () => {
       const recurring = [makeRecurring({ dayOfWeek: 1 })];
       const slots = service.calculateSlots(
         recurring,
         [],
         [],
-        "UTC",
+        'UTC',
         0,
         futureMonday,
         futureMonday,
         30,
-        { timeOfDay: "morning" },
+        { timeOfDay: 'morning' },
         100,
       );
       if (slots.length > 0) {
-        const topSlot = slots[0]!;
+        const topSlot = slots[0];
         const hour = new Date(topSlot.startTime).getUTCHours();
         expect(hour).toBeGreaterThanOrEqual(9);
         expect(hour).toBeLessThan(12);
       }
     });
 
-    it("should score preferred day higher", () => {
+    it('should score preferred day higher', () => {
       const recurring = [
         makeRecurring({ dayOfWeek: 1 }), // Monday
-        makeRecurring({ id: "rec-2", dayOfWeek: 2 }), // Tuesday
+        makeRecurring({ id: 'rec-2', dayOfWeek: 2 }), // Tuesday
       ];
       const slots = service.calculateSlots(
         recurring,
         [],
         [],
-        "UTC",
+        'UTC',
         0,
         futureMonday,
         futureTuesday,
@@ -317,7 +315,7 @@ describe("AvailabilityCalculatorService", () => {
         100,
       );
       if (slots.length > 0) {
-        const topSlot = slots[0]!;
+        const topSlot = slots[0];
         const day = new Date(topSlot.startTime).getUTCDay();
         expect(day).toBe(1); // Monday = 1 in JS Date
       }

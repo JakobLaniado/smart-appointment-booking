@@ -1,6 +1,10 @@
-import { Injectable } from "@nestjs/common";
-import { DateTime, Interval, Settings } from "luxon";
-import type { RecurringAvailability, AvailabilityOverride, Booking } from "@prisma/client";
+import { Injectable } from '@nestjs/common';
+import { DateTime, Interval, Settings } from 'luxon';
+import type {
+  RecurringAvailability,
+  AvailabilityOverride,
+  Booking,
+} from '@prisma/client';
 
 Settings.throwOnInvalid = true;
 
@@ -11,7 +15,7 @@ export interface SlotResult {
 }
 
 export interface SlotPreferences {
-  timeOfDay?: "morning" | "afternoon" | "evening";
+  timeOfDay?: 'morning' | 'afternoon' | 'evening';
   preferredDays?: number[];
   notBefore?: string;
   notAfter?: string;
@@ -32,17 +36,12 @@ export class AvailabilityCalculatorService {
     maxResults: number = 10,
   ): SlotResult[] {
     const rangeStart = DateTime.fromISO(startDate, { zone: timezone }).startOf(
-      "day",
+      'day',
     );
-    const rangeEnd = DateTime.fromISO(endDate, { zone: timezone }).endOf("day");
+    const rangeEnd = DateTime.fromISO(endDate, { zone: timezone }).endOf('day');
 
     // 1. Build daily windows from recurring availability
-    let windows = this.buildDailyWindows(
-      recurring,
-      timezone,
-      rangeStart,
-      rangeEnd,
-    );
+    let windows = this.buildDailyWindows(recurring, rangeStart, rangeEnd);
 
     // 2. Apply overrides (BLOCK subtracts, OPEN adds)
     windows = this.applyOverrides(windows, overrides);
@@ -67,7 +66,6 @@ export class AvailabilityCalculatorService {
 
   private buildDailyWindows(
     recurring: RecurringAvailability[],
-    _timezone: string,
     rangeStart: DateTime,
     rangeEnd: DateTime,
   ): Interval[] {
@@ -80,8 +78,8 @@ export class AvailabilityCalculatorService {
 
       const dayRules = activeRules.filter((r) => r.dayOfWeek === dayOfWeek);
       for (const rule of dayRules) {
-        const [startHour, startMin] = rule.startTime.split(":").map(Number);
-        const [endHour, endMin] = rule.endTime.split(":").map(Number);
+        const [startHour, startMin] = rule.startTime.split(':').map(Number);
+        const [endHour, endMin] = rule.endTime.split(':').map(Number);
 
         const start = current.set({
           hour: startHour,
@@ -124,8 +122,10 @@ export class AvailabilityCalculatorService {
 
       if (!overrideInterval.isValid) continue;
 
-      if (override.type === "BLOCK") {
-        result = result.flatMap((w) => this.subtractInterval(w, overrideInterval));
+      if (override.type === 'BLOCK') {
+        result = result.flatMap((w) =>
+          this.subtractInterval(w, overrideInterval),
+        );
       } else {
         // OPEN — add as new window
         result.push(overrideInterval);
@@ -143,7 +143,7 @@ export class AvailabilityCalculatorService {
     let result = [...windows];
 
     for (const booking of bookings) {
-      if (booking.status === "CANCELLED") continue;
+      if (booking.status === 'CANCELLED') continue;
 
       const busyStart = DateTime.fromJSDate(booking.startTime).minus({
         minutes: bufferMinutes,
@@ -161,10 +161,7 @@ export class AvailabilityCalculatorService {
     return result;
   }
 
-  private subtractInterval(
-    window: Interval,
-    block: Interval,
-  ): Interval[] {
+  private subtractInterval(window: Interval, block: Interval): Interval[] {
     if (!window.overlaps(block)) {
       return [window];
     }
@@ -174,7 +171,7 @@ export class AvailabilityCalculatorService {
     // Left remainder: window.start to block.start
     if (window.start! < block.start!) {
       const left = Interval.fromDateTimes(window.start!, block.start!);
-      if (left.isValid && left.length("minutes") > 0) {
+      if (left.isValid && left.length('minutes') > 0) {
         results.push(left);
       }
     }
@@ -182,7 +179,7 @@ export class AvailabilityCalculatorService {
     // Right remainder: block.end to window.end
     if (block.end! < window.end!) {
       const right = Interval.fromDateTimes(block.end!, window.end!);
-      if (right.isValid && right.length("minutes") > 0) {
+      if (right.isValid && right.length('minutes') > 0) {
         results.push(right);
       }
     }
@@ -204,7 +201,7 @@ export class AvailabilityCalculatorService {
       // Skip past minimum start time
       if (slotStart < minimumStart) {
         // Round up to next 15-min increment after minimumStart
-        const diff = minimumStart.diff(slotStart, "minutes").minutes;
+        const diff = minimumStart.diff(slotStart, 'minutes').minutes;
         const stepsToSkip = Math.ceil(diff / stepMinutes);
         slotStart = slotStart.plus({ minutes: stepsToSkip * stepMinutes });
       }
@@ -212,8 +209,8 @@ export class AvailabilityCalculatorService {
       while (slotStart.plus({ minutes: durationMinutes }) <= window.end!) {
         const slotEnd = slotStart.plus({ minutes: durationMinutes });
         slots.push({
-          startTime: slotStart.toUTC().toISO()!,
-          endTime: slotEnd.toUTC().toISO()!,
+          startTime: slotStart.toUTC().toISO(),
+          endTime: slotEnd.toUTC().toISO(),
         });
         slotStart = slotStart.plus({ minutes: stepMinutes });
       }
@@ -237,7 +234,7 @@ export class AvailabilityCalculatorService {
         afternoon: [12, 17],
         evening: [17, 20],
       };
-      const [rangeStart, rangeEnd] = ranges[preferences.timeOfDay]!;
+      const [rangeStart, rangeEnd] = ranges[preferences.timeOfDay];
       if (hour >= rangeStart && hour < rangeEnd) {
         score += 30;
       }
@@ -252,21 +249,25 @@ export class AvailabilityCalculatorService {
     }
 
     // Earliness — sooner slots rank higher (20pts max)
-    const hoursFromNow = start.diff(DateTime.now(), "hours").hours;
+    const hoursFromNow = start.diff(DateTime.now(), 'hours').hours;
     if (hoursFromNow > 0) {
       score += Math.max(0, 20 - Math.floor(hoursFromNow / 24));
     }
 
-    // Constraint compliance (15pts)
+    // Constraint compliance (15pts) — notBefore/notAfter are HH:mm strings
     if (preferences.notBefore) {
-      const notBefore = DateTime.fromISO(preferences.notBefore);
-      if (start >= notBefore) score += 7;
+      const [nbHour, nbMin] = preferences.notBefore.split(':').map(Number);
+      if (hour > nbHour || (hour === nbHour && start.minute >= nbMin)) {
+        score += 7;
+      }
     } else {
       score += 7;
     }
     if (preferences.notAfter) {
-      const notAfter = DateTime.fromISO(preferences.notAfter);
-      if (start <= notAfter) score += 8;
+      const [naHour, naMin] = preferences.notAfter.split(':').map(Number);
+      if (hour < naHour || (hour === naHour && start.minute <= naMin)) {
+        score += 8;
+      }
     } else {
       score += 8;
     }
